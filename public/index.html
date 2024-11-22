@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POLLER</title>
+    <link rel="icon" type="image/png" href="/poller.png">
+    <script src="https://cdn.jsdelivr.net/npm/@solana/web3.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1e1e2f;
+            color: white;
+            display: flex;
+            padding: 20px;
+        }
+        #chatContainer {
+            width: 25%;
+            border-right: 1px solid #444;
+            padding-right: 20px;
+            height: calc(100vh - 20px);
+            display: flex;
+            flex-direction: column;
+        }
+        #chatMessages {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 10px;
+            background-color: #2e2e3f;
+            border-radius: 10px;
+        }
+        #chatInput {
+            display: flex;
+            margin-top: 10px;
+        }
+        #chatInput input {
+            flex-grow: 1;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #555;
+            background-color: #444;
+            color: white;
+        }
+        #chatInput button {
+            background-color: #8ab4f8;
+            color: #1e1e2f;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #chatInput button:hover {
+            background-color: #6591d5;
+        }
+        #mainContent {
+            flex-grow: 1;
+            padding-left: 10px;
+            text-align: center;
+        }
+        .poll {
+            border: 1px solid #444;
+            margin: 20px auto;
+            padding: 15px;
+            max-width: 500px;
+            background-color: #2e2e3f;
+            border-radius: 10px;
+            text-align: left;
+        }
+        button {
+            background-color: #8ab4f8;
+            color: #1e1e2f;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #6591d5;
+        }
+    </style>
+
+</head>
+<body>
+    <div id="chatContainer">
+        <h2>Live Chat</h2>
+        <div id="chatMessages"></div>
+        <div id="chatInput">
+            <input type="text" id="messageInput" placeholder="Enter your message...">
+            <button id="sendMessageButton" disabled>Send</button>
+        </div>
+    </div>
+
+    <div id="mainContent">
+        <pre style="font-family: monospace; text-align: center; line-height: 1.2em;">
+                  888 888                  
+                  888 888                  
+                  888 888                  
+88888b.   .d88b.  888 888  .d88b.  888d888 
+888 "88b d88""88b 888 888 d8P  Y8b 888P"   
+888  888 888  888 888 888 88888888 888     
+888 d88P Y88..88P 888 888 Y8b.     888     
+88888P"   "Y88P"  888 888  "Y8888  888     
+888                                        
+888                                        
+888                                        
+        </pre>
+        <div id="wallet">
+            <button id="connectWallet">Connect Wallet</button>
+        </div>
+        <div id="createPoll">
+            <h2>Create a Poll</h2>
+            <form id="pollForm">
+                <input type="text" id="pollTitle" placeholder="Poll Title" required /><br /><br />
+                <textarea id="pollDescription" placeholder="Poll Description" required></textarea><br /><br />
+                <div id="pollOptionsContainer">
+                    <input type="text" class="option-input" placeholder="Option 1" required /><br />
+                    <input type="text" class="option-input" placeholder="Option 2" required /><br />
+                </div>
+                <button type="button" id="addOptionButton">Add Another Option</button><br /><br />
+                <button type="submit">Create Poll</button>
+            </form>
+        </div>
+        <div id="polls">
+            <h2>Active Polls</h2>
+            <!-- Polls will be dynamically added here -->
+        </div>
+    </div>
+
+    <script>
+        const connectWalletButton = document.getElementById("connectWallet");
+        const pollsContainer = document.getElementById("polls");
+        const pollOptionsContainer = document.getElementById("pollOptionsContainer");
+        const addOptionButton = document.getElementById("addOptionButton");
+        const chatMessages = document.getElementById("chatMessages");
+        const messageInput = document.getElementById("messageInput");
+        const sendMessageButton = document.getElementById("sendMessageButton");
+
+        let walletAddress = null;
+        let optionCount = 2; // Start with 2 options
+
+        // Connect Solana wallet
+        async function connectWallet() {
+            if (!window.solana) {
+                alert("Please install a Solana wallet.");
+                return;
+            }
+            try {
+                const resp = await window.solana.connect();
+                walletAddress = resp.publicKey.toString();
+                connectWalletButton.textContent = `Wallet Connected: ${walletAddress}`;
+                connectWalletButton.disabled = true;
+                console.log("Wallet connected:", walletAddress);
+                sendMessageButton.disabled = false; // Enable chat if wallet is connected
+            } catch (err) {
+                console.error("Wallet connection failed:", err);
+            }
+        }
+
+        connectWalletButton.addEventListener("click", connectWallet);
+
+        // Add up to 2 more option inputs dynamically
+        addOptionButton.addEventListener("click", () => {
+            if (optionCount < 4) { // Maximum of 4 options
+                optionCount++;
+                const newOptionInput = document.createElement("input");
+                newOptionInput.type = "text";
+                newOptionInput.classList.add("option-input");
+                newOptionInput.placeholder = `Option ${optionCount}`;
+                newOptionInput.required = true;
+                pollOptionsContainer.appendChild(newOptionInput);
+                pollOptionsContainer.appendChild(document.createElement("br"));
+            } else {
+                alert("You can only add up to 4 options.");
+            }
+        });
+
+        // Fetch polls from the server
+        async function fetchPolls() {
+            try {
+                const response = await fetch("/polls");
+                const polls = await response.json();
+
+                pollsContainer.innerHTML = ""; // Clear existing polls
+
+                polls.sort((a, b) => b.id - a.id); // Sort polls by newest first
+                polls.forEach((poll) => {
+                    const pollDiv = document.createElement("div");
+                    pollDiv.classList.add("poll");
+
+                    pollDiv.innerHTML = `
+                        <h3>${poll.title}</h3>
+                        <p>Posted by: <a href="https://solscan.io/account/${poll.poster}" target="_blank" style="color: #8ab4f8; text-decoration: none;">${poll.poster}</a></p>
+                        <p>Description: ${poll.description}</p>
+                        <div>
+                            ${poll.options.map((option, index) => `
+                                <button onclick="vote('${poll.id}', ${index})">${option} - Votes: ${poll.votes[index]}</button>
+                            `).join("")}
+                        </div>
+                    `;
+
+                    pollsContainer.appendChild(pollDiv);
+                });
+            } catch (error) {
+                console.error("Error fetching polls:", error);
+            }
+        }
+
+        // Submit a new poll
+        document.getElementById("pollForm").addEventListener("submit", async (event) => {
+            event.preventDefault(); // Prevent default form submission
+
+            if (!walletAddress) {
+                alert("You must connect your wallet to create a poll.");
+                return;
+            }
+
+            const title = document.getElementById("pollTitle").value;
+            const description = document.getElementById("pollDescription").value;
+            const options = Array.from(document.querySelectorAll(".option-input"))
+                .map(input => input.value.trim())
+                .filter(option => option !== "");
+
+            if (options.length < 2) {
+                alert("You must provide at least two options.");
+                return;
+            }
+
+            try {
+                const response = await fetch("/polls", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ title, description, options, poster: walletAddress })
+                });
+
+                if (response.ok) {
+                    alert("Poll created!");
+                    document.getElementById("pollTitle").value = ""; // Clear form
+                    document.getElementById("pollDescription").value = ""; // Clear description
+                    pollOptionsContainer.innerHTML = ""; // Clear options
+                    optionCount = 2; // Reset option count
+                    pollOptionsContainer.innerHTML = `
+                        <input type="text" class="option-input" placeholder="Option 1" required /><br />
+                        <input type="text" class="option-input" placeholder="Option 2" required /><br />
+                    `;
+                    fetchPolls(); // Refresh poll list
+                } else {
+                    const error = await response.json();
+                    alert(`Error creating poll: ${error.error}`);
+                }
+            } catch (error) {
+                console.error("Error creating poll:", error);
+                alert("Error creating poll.");
+            }
+        });
+
+        // Vote on a poll
+        async function vote(pollId, optionIndex) {
+            if (!walletAddress) {
+                alert("You must connect your wallet to vote.");
+                return;
+            }
+
+            try {
+                await fetch(`/polls/${pollId}/vote`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        wallet: walletAddress,
+                        option: optionIndex
+                    })
+                });
+                alert("Vote submitted!");
+                fetchPolls();
+            } catch (error) {
+                console.error("Error submitting vote:", error);
+                alert("Error submitting vote.");
+            }
+        }
+
+        // Live Chat Functionality
+        async function fetchChatMessages() {
+            try {
+                const response = await fetch("/chat");
+                const messages = await response.json();
+
+                chatMessages.innerHTML = "";
+                messages.forEach(message => {
+                    const messageDiv = document.createElement("div");
+                    messageDiv.innerHTML = `<span style='color: #8ab4f8; cursor: pointer;' onclick="window.open('https://solscan.io/account/${message.wallet}', '_blank')">${message.wallet.slice(0, 4)}...${message.wallet.slice(-4)}</span>: ${message.text}`;
+                    chatMessages.appendChild(messageDiv);
+                });
+            } catch (error) {
+                console.error("Error fetching chat messages:", error);
+            }
+        }
+
+        async function sendMessage() {
+            if (!walletAddress) {
+                alert("You must connect your wallet to send a message.");
+                return;
+            }
+
+            const messageText = messageInput.value.trim();
+            if (!messageText) {
+                alert("Message cannot be empty.");
+                return;
+            }
+
+            try {
+                await fetch("/chat", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ wallet: walletAddress, text: messageText })
+                });
+                messageInput.value = "";
+                fetchChatMessages();
+            } catch (error) {
+                console.error("Error sending message:", error);
+                alert("Error sending message.");
+            }
+        }
+
+        sendMessageButton.addEventListener("click", sendMessage);
+        fetchPolls(); // Load polls on page load
+        fetchChatMessages(); // Load chat messages on page load
+        setInterval(fetchChatMessages, 3000); // Refresh chat messages every 3 seconds
+    </script>
+</body>
+</html>
