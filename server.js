@@ -15,7 +15,7 @@ app.use(express.static('public'));
 
 // Initialize the data file if it doesn't exist
 if (!fs.existsSync(dataFile)) {
-    fs.writeFileSync(dataFile, JSON.stringify({ polls: [], votes: [] }, null, 2));
+    fs.writeFileSync(dataFile, JSON.stringify({ polls: [] }, null, 2));
 }
 if (!fs.existsSync(chatFile)) {
     fs.writeFileSync(chatFile, JSON.stringify({ messages: [] }, null, 2));
@@ -61,6 +61,7 @@ app.post('/polls', (req, res) => {
         options,
         votes: Array(options.length).fill(0),
         poster, // Save the poster's wallet address
+        votedWallets: [] // Track wallets that voted to prevent duplicate votes
     };
 
     data.polls.push(newPoll);
@@ -85,8 +86,7 @@ app.post('/polls/:id/vote', (req, res) => {
         return res.status(404).json({ error: 'Poll not found.' });
     }
 
-    const hasVoted = data.votes.find((vote) => vote.wallet === wallet && vote.pollId == id);
-    if (hasVoted) {
+    if (poll.votedWallets.includes(wallet)) {
         return res.status(400).json({ error: 'You have already voted on this poll.' });
     }
 
@@ -94,8 +94,9 @@ app.post('/polls/:id/vote', (req, res) => {
         return res.status(400).json({ error: 'Invalid option index.' });
     }
 
+    // Register vote
     poll.votes[option]++;
-    data.votes.push({ wallet, pollId: id });
+    poll.votedWallets.push(wallet);
 
     writeData(data);
 
